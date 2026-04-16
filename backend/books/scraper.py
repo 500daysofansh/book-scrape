@@ -6,40 +6,58 @@ from webdriver_manager.chrome import ChromeDriverManager
 import time
 
 def scrape_books(limit=10):
-    # Setup Chrome options (Headless means no window pops up)
+    """
+    Uses Selenium to scrape real book data. 
+    Clicks into individual book pages to retrieve full descriptions.
+    """
+    # Setup headless Chrome options for performance
     chrome_options = Options()
-    chrome_options.add_argument("--headless") 
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
+    # Target URL (Sandbox bookstore)
     url = "http://books.toscrape.com/catalogue/category/books_1/index.html"
     driver.get(url)
-    time.sleep(2) # Give it a second to breathe
+    time.sleep(2)
     
-    books_list = []
+    books_data = []
     
-    # Find all book containers
-    items = driver.find_elements(By.CLASS_NAME, "product_pod")[:limit]
+    # Find initial book links on the home page
+    book_elements = driver.find_elements(By.CSS_SELECTOR, "h3 a")
+    book_links = [el.get_attribute("href") for el in book_elements][:limit]
     
-    for item in items:
+    for link in book_links:
         try:
-            # Extract basic info
-            title = item.find_element(By.TAG_NAME, "h3").find_element(By.TAG_NAME, "a").get_attribute("title")
-            rating = item.find_element(By.CSS_SELECTOR, ".star-rating").get_attribute("class").split()[-1]
-            price = item.find_element(By.CLASS_NAME, "price_color").text
-            book_url = item.find_element(By.TAG_NAME, "h3").find_element(By.TAG_NAME, "a").get_attribute("href")
+            # Navigate to the specific book detail page
+            driver.get(link)
+            time.sleep(1) # Polite scraping
             
-            # Note: In a real scenario, you'd click the link to get the full description. 
-            # For this test, we'll create a placeholder description.
-            books_list.append({
+            title = driver.find_element(By.TAG_NAME, "h1").text
+            
+            # Extract Rating from class name (e.g., 'star-rating Three')
+            rating_element = driver.find_element(By.CSS_SELECTOR, ".star-rating")
+            rating = rating_element.get_attribute("class").replace("star-rating ", "")
+            
+            # Extract Real Description (found in the sibling of the product_description header)
+            try:
+                description = driver.find_element(By.XPATH, "//div[@id='product_description']/following-sibling::p").text
+            except:
+                description = "No description available."
+                
+            books_data.append({
                 "title": title,
                 "rating": rating,
-                "description": f"A great book priced at {price}. This was collected via automation.",
-                "url": book_url,
-                "author": "Unknown Author" # The demo site doesn't list authors on the front page
+                "description": description,
+                "url": link,
+                "author": "Classic Literature" # Site doesn't list authors; providing a default
             })
+            print(f"✅ Scraped: {title}")
+            
         except Exception as e:
-            print(f"Skipping a book due to error: {e}")
+            print(f"❌ Error scraping {link}: {e}")
             
     driver.quit()
-    return books_list
+    return books_data
