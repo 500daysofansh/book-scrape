@@ -1,63 +1,78 @@
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
-import time
+from .models import Book
+from .ai_insights import generate_book_insights
+from .rag_pipeline import add_to_rag_storage
 
-def scrape_books(limit=10):
+def run_deep_scraper():
     """
-    Uses Selenium to scrape real book data. 
-    Clicks into individual book pages to retrieve full descriptions.
+    Requirement: Document Processing Engine.
+    Bonus: Multi-page scraping pipeline + Optimization Techniques.
     """
-    # Setup headless Chrome options for performance
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
+    options = webdriver.ChromeOptions()
+    options.add_argument("--headless") 
+    options.add_argument("--disable-gpu")
     
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    # 🔥 OPTIMIZATION 1: Tell Chrome to NOT load images, CSS, or fonts.
+    prefs = {
+        "profile.managed_default_content_settings.images": 2,
+        "profile.managed_default_content_settings.stylesheets": 2,
+        "profile.managed_default_content_settings.fonts": 2
+    }
+    options.add_experimental_option("prefs", prefs)
     
-    # Target URL (Sandbox bookstore)
-    url = "http://books.toscrape.com/catalogue/category/books_1/index.html"
-    driver.get(url)
-    time.sleep(2)
+    # 🔥 OPTIMIZATION 2: 'eager' means don't wait for the page to fully render, 
+    # just grab the HTML and go.
+    options.page_load_strategy = 'eager' 
     
-    books_data = []
+    driver = webdriver.Chrome(options=options)
     
-    # Find initial book links on the home page
-    book_elements = driver.find_elements(By.CSS_SELECTOR, "h3 a")
-    book_links = [el.get_attribute("href") for el in book_elements][:limit]
-    
-    for link in book_links:
-        try:
-            # Navigate to the specific book detail page
-            driver.get(link)
-            time.sleep(1) # Polite scraping
+    try:
+        # Loop through the first 2 pages
+        for page_num in range(1, 3): 
+            print(f"📄 Scraping Page {page_num}...")
+            driver.get(f"https://books.toscrape.com/catalogue/page-{page_num}.html")
             
-            title = driver.find_element(By.TAG_NAME, "h1").text
-            
-            # Extract Rating from class name (e.g., 'star-rating Three')
-            rating_element = driver.find_element(By.CSS_SELECTOR, ".star-rating")
-            rating = rating_element.get_attribute("class").replace("star-rating ", "")
-            
-            # Extract Real Description (found in the sibling of the product_description header)
-            try:
-                description = driver.find_element(By.XPATH, "//div[@id='product_description']/following-sibling::p").text
-            except:
-                description = "No description available."
+            links = driver.find_elements(By.CSS_SELECTOR, "h3 a")
+            book_urls = [link.get_attribute("href") for link in links]
+
+            # Processing 5 books per page for the demo
+            for url in book_urls[:5]: 
+                driver.get(url)
+                # 🔥 OPTIMIZATION 3: Removed time.sleep(1). We don't need it anymore.
+
+                title = driver.find_element(By.TAG_NAME, "h1").text
                 
-            books_data.append({
-                "title": title,
-                "rating": rating,
-                "description": description,
-                "url": link,
-                "author": "Classic Literature" # Site doesn't list authors; providing a default
-            })
-            print(f"✅ Scraped: {title}")
-            
-        except Exception as e:
-            print(f"❌ Error scraping {link}: {e}")
-            
-    driver.quit()
-    return books_data
+                # Check cache first
+                if Book.objects.filter(title=title).exists():
+                    print(f"⏭️ Skipping already processed: {title}")
+                    continue
+
+                try:
+                    desc = driver.find_element(By.XPATH, "//div[@id='product_description']/following-sibling::p").text
+                except:
+                    desc = "No description available."
+                    
+                rating_class = driver.find_element(By.CSS_SELECTOR, ".star-rating").get_attribute("class")
+                rating = rating_class.replace("star-rating ", "")
+
+                # ⚠️ NOTE: The AI API call is now your only bottleneck. 
+                # It takes 1-3 seconds per book to generate the summary/genre.
+                insights = generate_book_insights(desc)
+
+                book = Book.objects.create(
+                    title=title,
+                    author="Classic Literature",
+                    description=desc,
+                    rating=rating,
+                    genre=insights.get('genre', 'General'),
+                    summary=insights.get('summary', 'No summary available.'),
+                    sentiment=insights.get('sentiment', 'Neutral'),
+                    url=url
+                )
+
+                add_to_rag_storage(book)
+                print(f"⚡ Turbo Processed: {title}")
+
+    finally:
+        driver.quit()

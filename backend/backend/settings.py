@@ -2,11 +2,15 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv() # Loads your OpenRouter key and DB credentials from .env
+# Load environment variables
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "your-fallback-temp-key")
+
 DEBUG = True
+
 ALLOWED_HOSTS = ["*"]
 
 # --- 1. Installed Apps ---
@@ -26,9 +30,9 @@ INSTALLED_APPS = [
     'books',
 ]
 
-# --- 2. Middleware (CORS must be at the top) ---
+# --- 2. Middleware ---
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware', # Put this first!
+    'corsheaders.middleware.CorsMiddleware', # Critical: Keep at the top
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -40,20 +44,47 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'backend.urls'
 
-# --- 3. Database (Requirement: MySQL) ---
+# --- 3. Templates (FIXED: Required for Admin App) ---
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [],
+        'APP_DIRS': True, # Allows Django to find admin templates
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = 'backend.wsgi.application'
+
+# --- 4. Database (Requirement: MySQL) ---
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'book_db',
         'USER': 'root',
-        'PASSWORD': 'your_mysql_password', # Replace with your local password
+        'PASSWORD': 'admin', # Ensure this matches your local MySQL
         'HOST': '127.0.0.1',
         'PORT': '3306',
     }
 }
 
-# --- 4. CORS & REST Framework ---
-CORS_ALLOW_ALL_ORIGINS = True  # Set to False and use CORS_ALLOWED_ORIGINS in production
+# --- 5. Password Validation ---
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
+
+# --- 6. CORS & REST Framework ---
+CORS_ALLOW_ALL_ORIGINS = True 
 
 REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
@@ -61,11 +92,11 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny', # Change for security later
+        'rest_framework.permissions.AllowAny',
     ]
 }
 
-# --- 5. Internationalization ---
+# --- 7. Internationalization ---
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Kolkata' 
 USE_I18N = True
